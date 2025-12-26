@@ -1,56 +1,47 @@
-### 鱼嘴识别与追踪
+# Fish Behavior Tracking & Analysis
 
-本实验旨在通过计算机视觉技术对鱼类的运动进行检测和分析。我们使用 HSV 颜色空间来提取鱼体，绘制鱼的最小外接矩形，并通过一系列算法判断鱼的头尾方向。以下是具体的实验方法步骤：
-#### 技术原理
-##### 1. 使用 HSV 提取鱼体
+This project implements a computer vision-based algorithm to detect, track, and analyze the behavior of Crucian carp in experimental water tanks. It utilizes **HSV color space segmentation** and **geometric analysis** to determine the fish's position and head-tail orientation.
 
-**目标**：通过颜色提取从图像中分离出鱼体。
+## 🔬 Technical Methodology
 
-- **方法**：
-  - 使用 OpenCV 将每帧图像从 RGB 色彩空间转换到 HSV 色彩空间。
-    - `cv2.cvtColor(image, cv2.COLOR_RGB2HSV)`
-  - 定义用于提取鱼体的颜色范围（例如蓝色鱼类：H范围为90-100，S和V分别设定为[50, 255]和[50, 170]）。（根据观测获取，会因为视频数据来源不一致而不一样
-    - `lower_bound = np.array([90, 50, 50])`
-    - `upper_bound = np.array([100, 255, 170])`
-  - 通过 `cv2.inRange()` 函数创建掩码，只保留颜色范围内的像素，将其他区域设为黑色。
-    - `mask = cv2.inRange(hsv_image, lower_bound, upper_bound)`
-  - 应用感兴趣区域（ROI）屏蔽不相关的背景部分，减少噪声干扰。
-    - 定义对称中心 `symmetry_x` 和 `symmetry_y` 以构建 ROI 掩码，并将其与原始掩码进行逻辑 "与" 运算。
+The tracking pipeline consists of three main stages: body extraction, feature selection, and orientation correction.
 
-**预期效果**：在 HSV 颜色空间中有效地分离出鱼体，生成一个包含鱼体的掩码图像。
+### 1. Fish Body Extraction via HSV
 
-##### 2. 绘制最小外接矩形并选取鱼的主要特征
+**Objective:** To isolate the fish subject from the background environment using color thresholding.
 
-**目标**：通过形状轮廓获取鱼的主要特征位置，如头部和尾部。
+- **Color Conversion:** Convert frames from **RGB** to **HSV** color space using `cv2.cvtColor` to handle lighting variations better.
+  
+- **Thresholding:** Define specific color ranges to extract the fish body (e.g., for blue-tagged subjects).
+  - **Lower Bound:** `np.array([90, 50, 50])`
+  - **Upper Bound:** `np.array([100, 255, 170])`
+  > **Note:** These HSV values are based on experimental observations and should be adjusted according to your specific video data source.
 
-- **方法**：
-  - 利用 `cv2.findContours()` 函数从掩码图像中检测鱼体轮廓，并选取面积最大的轮廓作为鱼体。
-    - `contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)`
-  - 使用 `cv2.minAreaRect()` 函数计算轮廓的最小外接矩形，得到矩形的中心点、宽度、高度和旋转角度等参数。
-    - `rect = cv2.minAreaRect(fish_contour)`
-  - 将矩形转换为四个顶点坐标，用于可视化和后续分析。
-    - `box = cv2.boxPoints(rect)`
-    - `box = np.int0(box)`
-  - 利用图像矩计算轮廓的质心（即鱼体中心），并从鱼的轮廓上选取最远点作为鱼头（初始假定）和最近点作为鱼尾。
-    - 使用 `cv2.moments()` 计算轮廓的质心，`np.sqrt()` 计算鱼体各点到质心的距离。
+- **Masking & ROI:** - Generate a binary mask using `cv2.inRange()`.
+  - Apply a **Region of Interest (ROI)** based on the tank's symmetry to filter out external noise using logical "AND" operations.
 
-**预期效果**：绘制出鱼体的最小外接矩形，并提取出鱼的头部和尾部位置。
+### 2. Geometric Feature Analysis
 
-##### 3. 通过大小端分析及异常点检测来判断鱼嘴和鱼尾
+**Objective:** To identify the fish's shape and locate key body parts (head/tail).
 
-**目标**：根据鱼体特征判断鱼的头尾方向，并通过异常检测修正方向。
+- **Contour Detection:** Use `cv2.findContours` to detect objects in the mask. The contour with the **largest area** is identified as the target fish.
 
-- **方法**：
-  - **大小端判断**：
-    - 计算鱼的头部与前几帧尾部的位置距离。如果头部位置与前几帧尾部距离过近，则判断当前帧的头部和尾部发生了位置互换。
-    - `distance = np.sqrt((p1[0] - p2[0])**2 + (p1[1] - p2[1])**2)`
-    - 在实验中，使用最小外接矩形的宽度和高度来计算半径，确保鱼头在合理的预期范围内。
-      - `radius = np.sqrt(width**2 + height**2) / 2`
-  - **异常点检测**：
-    - 如果发现头尾位置被错误识别（即鱼头距离尾部位置过近），则需要交换头尾位置，并记录异常情况。
-    - 当检测到头尾互换时，记录时间并在日志中记录这一信息。
-    - 使用 `correct_fish_orientation()` 函数对每一帧鱼的头尾位置进行修正，并判断是否需要交换头尾。
-      - `corrected_head, corrected_tail = correct_fish_orientation(prev_tails, current_head, current_tail, rect, time)`
-  - 将修正后的头尾位置存储，绘制鱼的运动轨迹和热力图，用于分析鱼的行为模式。
+- **Minimum Enclosing Rectangle:** - Calculate the minimum area rectangle using `cv2.minAreaRect`.
+  - Extract geometric parameters: `center`, `width`, `height`, and `angle`.
+  - Convert rectangle vertices to coordinates using `cv2.boxPoints`.
 
-**预期效果**：通过修正和异常点检测算法，确保头尾判断的准确性，提高跟踪效果。
+- **Feature Point Identification:** - Calculate the **Centroid** of the fish using image moments (`cv2.moments`).
+  - Determine the **Head** (assumed furthest point from centroid) and **Tail** (assumed nearest point) on the contour.
+
+### 3. Orientation Correction & Anomaly Detection
+
+**Objective:** To distinguish the head from the tail accurately and correct orientation errors (e.g., 180° flips).
+
+- **Size-End Analysis:** Determine the radius based on the rectangle's dimensions (`np.sqrt(width**2 + height**2) / 2`) to set a reasonable range for feature points.
+
+- **Trajectory Continuity Check:** Calculate the Euclidean distance between the **current Head** and the **previous frame's Tail**:
+  $$\text{Distance} = \sqrt{(x_1 - x_2)^2 + (y_1 - y_2)^2}$$
+  - **Logic:** If the current head is suspiciously close to the previous tail (indicating an impossible instant flip), the algorithm detects an anomaly.
+
+- **Correction Strategy:** - The function `correct_fish_orientation()` is triggered to swap the head and tail coordinates if an anomaly is detected.
+  - Corrected coordinates are logged and used to plot the final **movement trajectory** and **heatmap**.
